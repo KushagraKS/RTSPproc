@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RTSP Stream Orchestrator</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 720px; }
+    label { display: block; margin-top: 1rem; font-weight: bold; }
+    input[type="text"] { width: 100%; padding: 0.5rem; }
+    button { margin-top: 1rem; padding: 0.6rem 1.2rem; }
+    .status { margin-top: 1rem; }
+    .container { border: 1px solid #ccc; padding: 1rem; border-radius: 6px; }
+  </style>
+  <script>
+    async function startStream(e) {
+      e.preventDefault();
+      const rtsp_url = document.getElementById('rtsp_url').value;
+      const camera_id = document.getElementById('camera_id').value;
+      const status = document.getElementById('status');
+      status.textContent = 'Starting...';
+      try {
+        const res = await fetch('/start_stream', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rtsp_url, camera_id })
+        });
+        const data = await res.json();
+        status.textContent = JSON.stringify(data);
+      } catch (err) {
+        status.textContent = 'Error: ' + err.message;
+      }
+    }
+  </script>
+  </head>
+  <body>
+    <h1>RTSP Stream Orchestrator</h1>
+    <div class="container">
+      <form onsubmit="startStream(event)">
+        <label for="rtsp_url">RTSP URL</label>
+        <input id="rtsp_url" type="text" placeholder="rtsp://..." required />
+        <label for="camera_id">Camera ID</label>
+        <input id="camera_id" type="text" placeholder="CAM-001" required />
+        <button type="submit">Start Stream</button>
+      </form>
+      <div id="status" class="status"></div>
+    </div>
+  </body>
+  </html>
+
+
