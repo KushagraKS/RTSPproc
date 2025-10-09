@@ -63,20 +63,13 @@ curl -X POST http://localhost:5000/start_stream \
 ## JSON schema (per batch)
 ```json
 {
-  "basic": {
     "camID": "CAM001",
     "Latitude": 26.4499,
     "Longitude": 80.3319,
-    "Date": "08/10/2025",
-    "timestamp": "16:45:10",
+    "Date": "08/10/2025 16:45:10",
     "IP": "192.168.1.101",
-    "complaint_type": { "stray_animal": 1, "pothole": 0 },
+    "complaint_type": { "stray_animal": [{ "class": "dog", "confidence": 0.89, "box": [120,240,180,300] }], "pothole": 0 },
     "frame_base64": "<base64 of first frame>"
-  },
-  "stray_animal": {
-    "detections": [ { "class": "dog", "confidence": 0.89, "box": [120,240,180,300] } ]
-  },
-  "pothole": null
 }
 ```
 - `stray_animal.detections` comes from the animals model (e.g., `person`, `dog`, `cat`, ... as configured in `run_inference.py`).
