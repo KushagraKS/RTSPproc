@@ -254,23 +254,16 @@ class StreamProcessor(threading.Thread):
                 host_ip = '127.0.0.1'
 
             schema_obj = {
-                'basic': {
-                    'camID': str(self.camera_id),
-                    'Latitude': float(camera_meta.get('latitude')) if camera_meta.get('latitude') is not None else None,
-                    'Longitude': float(camera_meta.get('longitude')) if camera_meta.get('longitude') is not None else None,
-                    'Date': date_str,
-                    'timestamp': time_str,
-                    'IP': host_ip,
-                    'complaint_type': {
-                        'stray_animal': 1 if has_animal else 0,
-                        'pothole': 0,
-                    },
-                    'frame_base64': frame_b64,
+                'camID': str(self.camera_id),
+                'Latitude': float(camera_meta.get('latitude')) if camera_meta.get('latitude') is not None else None,
+                'Longitude': float(camera_meta.get('longitude')) if camera_meta.get('longitude') is not None else None,
+                'Date': f"{date_str} {time_str}",
+                'IP': host_ip,
+                'complaint_type': {
+                    'stray_animal': animal_detections if animal_detections else [],
+                    'pothole': 0,
                 },
-                'stray_animal': {
-                    'detections': animal_detections,
-                } if animal_detections else {'detections': []},
-                'pothole': None,
+                'frame_base64': frame_b64,
             }
 
             append_predictions([schema_obj])
