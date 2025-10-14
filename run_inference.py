@@ -7,48 +7,73 @@ from typing import List, Dict
 
 
 ANIMAL_CLASSES = ['person','dog', 'cat', 'horse', 'sheep', 'cow']
+POTHOLE_CLASSES = ['pothole']  # Adjust based on your model's class names
+GARBAGE_CLASSES = ['garbage', 'litter', 'trash']  # Adjust based on your model's class names
 
 
 def load_model(model_name: str):
-    if model_name != 'animals':
-        raise ValueError("Only 'animals' model is supported in this build")
+    if model_name not in ['animals', 'potholes', 'garbage']:
+        raise ValueError(f"Model '{model_name}' not supported. Supported models: animals, potholes, garbage")
 
-    # Lazy import so non-animals paths wouldn't require ultralytics (kept for clarity)
+    # Lazy import so non-YOLO paths wouldn't require ultralytics
     from ultralytics import YOLO
 
-    model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'models', 'animals', 'yolov8n.pt'))
-    model = YOLO(model_path)
+    # Determine model path and classes based on model name
+    if model_name == 'animals':
+        model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'models', 'animals', 'yolov8n.pt'))
+        target_classes = ANIMAL_CLASSES
+    elif model_name == 'potholes':
+        model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'models', 'potholes', 'best.pt'))
+        target_classes = POTHOLE_CLASSES
+    elif model_name == 'garbage':
+        model_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'models', 'garbage', 'best_model_garbge with water logging.pth'))
+        target_classes = GARBAGE_CLASSES
 
-    def _animals_infer(image_paths: List[str]) -> List[Dict]:
+    # Load model with error handling
+    try:
+        model = YOLO(model_path)
+    except Exception as e:
+        print(f"Error loading {model_name} model: {e}")
+        # Return a function that returns empty results
+        def _error_infer(image_paths: List[str]) -> List[Dict]:
+            return [{'frame_path': img, 'detections': [], 'inference_time_ms': 0, 'error': str(e)} for img in image_paths]
+        return _error_infer
+
+    def _model_infer(image_paths: List[str]) -> List[Dict]:
         results_out: List[Dict] = []
         for img in image_paths:
             start = time.time()
-            results = model(img)
-            detections = []
-            for r in results:
-                names_map = r.names  # id -> name
-                if getattr(r, 'boxes', None) is None:
-                    continue
-                for box in r.boxes:
-                    try:
-                        class_id = int(box.cls.item()) if hasattr(box.cls, 'item') else int(box.cls)
-                    except Exception:
+            try:
+                results = model(img)
+                detections = []
+                for r in results:
+                    names_map = r.names  # id -> name
+                    if getattr(r, 'boxes', None) is None:
                         continue
-                    class_name = names_map.get(class_id, str(class_id))
-                    if class_name in ANIMAL_CLASSES:
+                    for box in r.boxes:
                         try:
-                            conf = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
+                            class_id = int(box.cls.item()) if hasattr(box.cls, 'item') else int(box.cls)
                         except Exception:
-                            conf = 0.0
-                        try:
-                            xyxy = box.xyxy[0].tolist() if hasattr(box.xyxy, 'tolist') else list(box.xyxy)
-                        except Exception:
-                            xyxy = [0, 0, 0, 0]
-                        detections.append({
-                            'label': class_name,
-                            'confidence': round(conf, 4),
-                            'bbox': [float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3])],
-                        })
+                            continue
+                        class_name = names_map.get(class_id, str(class_id))
+                        if class_name in target_classes:
+                            try:
+                                conf = float(box.conf.item()) if hasattr(box.conf, 'item') else float(box.conf)
+                            except Exception:
+                                conf = 0.0
+                            try:
+                                xyxy = box.xyxy[0].tolist() if hasattr(box.xyxy, 'tolist') else list(box.xyxy)
+                            except Exception:
+                                xyxy = [0, 0, 0, 0]
+                            detections.append({
+                                'label': class_name,
+                                'confidence': round(conf, 4),
+                                'bbox': [float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3])],
+                            })
+            except Exception as e:
+                print(f"Error during inference for {model_name}: {e}")
+                detections = []
+            
             elapsed_ms = int((time.time() - start) * 1000)
             results_out.append({
                 'frame_path': img,
@@ -57,7 +82,7 @@ def load_model(model_name: str):
             })
         return results_out
 
-    return _animals_infer
+    return _model_infer
 
 
 def main():

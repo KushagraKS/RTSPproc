@@ -176,60 +176,90 @@ class StreamProcessor(threading.Thread):
                 time.sleep(0.2)
                 continue
 
-            # Prepare model environment
-            try:
-                if not self._model_env_ready:
-                    model_python = setup_model_environment(self.model_name)
-                    self._model_env_ready = True
-                else:
-                    # Resolve python executable path without reinstall
-                    venv_path = os.path.join(VENVS_DIR, self.model_name)
-                    model_python = os.path.join(venv_path, 'bin', 'python')
-            except subprocess.CalledProcessError:
-                # On setup failure, drop batch and continue
-                self._cleanup_files(batch_paths)
-                continue
+            # Run inference for all three models
+            all_models = ['animals', 'potholes', 'garbage']
+            all_predictions = {}
+            
+            for model_name in all_models:
+                try:
+                    # Prepare model environment
+                    model_python = setup_model_environment(model_name)
+                    
+                    # Prepare temp output file for this model
+                    temp_output = os.path.join(self.session_dir, f"tmp_results_{model_name}_{uuid.uuid4().hex[:8]}.json")
 
-            # Prepare temp output file
-            temp_output = os.path.join(self.session_dir, f"tmp_results_{uuid.uuid4().hex[:8]}.json")
+                    # Invoke subprocess for this model
+                    cmd = [
+                        model_python,
+                        os.path.abspath(os.path.join(os.path.dirname(__file__), 'run_inference.py')),
+                        '--model-name', model_name,
+                        '--frames', json.dumps(batch_paths),
+                        '--output-file', temp_output,
+                    ]
 
-            # Invoke subprocess
-            cmd = [
-                model_python,
-                os.path.abspath(os.path.join(os.path.dirname(__file__), 'run_inference.py')),
-                '--model-name', self.model_name,
-                '--frames', json.dumps(batch_paths),
-                '--output-file', temp_output,
-            ]
+                    proc = subprocess.run(cmd, capture_output=True, text=True)
+                    if proc.returncode != 0:
+                        print(f"Model {model_name} failed with return code {proc.returncode}")
+                        all_predictions[model_name] = []
+                        if os.path.exists(temp_output):
+                            os.remove(temp_output)
+                        continue
 
-            proc = subprocess.run(cmd, capture_output=True, text=True)
-            if proc.returncode != 0:
-                # Failed inference; clean up frames and temp file if exists
-                self._cleanup_files(batch_paths)
-                if os.path.exists(temp_output):
-                    os.remove(temp_output)
-                continue
-
-            # Read results
-            try:
-                with open(temp_output, 'r') as f:
-                    predictions = json.load(f)
-            except Exception:
-                predictions = []
+                    # Read results for this model
+                    try:
+                        with open(temp_output, 'r') as f:
+                            all_predictions[model_name] = json.load(f)
+                    except Exception as e:
+                        print(f"Error reading results for {model_name}: {e}")
+                        all_predictions[model_name] = []
+                    
+                    # Clean up temp file
+                    if os.path.exists(temp_output):
+                        os.remove(temp_output)
+                        
+                except Exception as e:
+                    print(f"Error running {model_name} model: {e}")
+                    all_predictions[model_name] = []
 
             # Build requested schema per batch (one entry per batch)
             camera_meta = read_camera_metadata(self.camera_id) or {}
-            has_animal = False
+            
+            # Process detections for each problem type
             animal_detections = []
-            for pred in predictions:
+            pothole_detections = []
+            garbage_detections = []
+            
+            # Process animals
+            for pred in all_predictions.get('animals', []):
                 for det in pred.get('detections', []):
                     label = det.get('label') or det.get('class')
                     if label:
-                        # Any detected label counts toward stray_animal; animals model already filters
-                        has_animal = True
-                        # Map to required keys
                         box = det.get('bbox') or det.get('box') or [0, 0, 0, 0]
                         animal_detections.append({
+                            'class': label,
+                            'confidence': float(det.get('confidence', 0.0)),
+                            'box': [float(box[0]), float(box[1]), float(box[2]), float(box[3])],
+                        })
+            
+            # Process potholes
+            for pred in all_predictions.get('potholes', []):
+                for det in pred.get('detections', []):
+                    label = det.get('label') or det.get('class')
+                    if label:
+                        box = det.get('bbox') or det.get('box') or [0, 0, 0, 0]
+                        pothole_detections.append({
+                            'class': label,
+                            'confidence': float(det.get('confidence', 0.0)),
+                            'box': [float(box[0]), float(box[1]), float(box[2]), float(box[3])],
+                        })
+            
+            # Process garbage
+            for pred in all_predictions.get('garbage', []):
+                for det in pred.get('detections', []):
+                    label = det.get('label') or det.get('class')
+                    if label:
+                        box = det.get('bbox') or det.get('box') or [0, 0, 0, 0]
+                        garbage_detections.append({
                             'class': label,
                             'confidence': float(det.get('confidence', 0.0)),
                             'box': [float(box[0]), float(box[1]), float(box[2]), float(box[3])],
@@ -261,7 +291,8 @@ class StreamProcessor(threading.Thread):
                 'IP': host_ip,
                 'complaint_type': {
                     'stray_animal': animal_detections if animal_detections else [],
-                    'pothole': 0,
+                    'pothole': pothole_detections if pothole_detections else [],
+                    'garbage': garbage_detections if garbage_detections else [],
                 },
                 'frame_base64': frame_b64,
             }
@@ -269,7 +300,7 @@ class StreamProcessor(threading.Thread):
             append_predictions([schema_obj])
 
             # Cleanup processed files
-            self._cleanup_files(batch_paths + [temp_output])
+            self._cleanup_files(batch_paths)
 
     def _cleanup_files(self, paths):
         for p in paths:
