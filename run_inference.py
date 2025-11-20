@@ -6,7 +6,7 @@ import time
 from typing import List, Dict
 
 
-ANIMAL_CLASSES = ['person','dog', 'cat', 'horse', 'sheep', 'cow']
+ANIMAL_CLASSES = ['dog', 'cat', 'horse', 'sheep', 'cow']
 
 
 def load_model(model_name: str):
