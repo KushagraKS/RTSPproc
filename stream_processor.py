@@ -297,7 +297,10 @@ class StreamProcessor(threading.Thread):
                 'frame_base64': frame_b64,
             }
 
-            append_predictions([schema_obj])
+            # Only append if there are any detections
+            has_any_detections = animal_detections or pothole_detections or garbage_detections
+            if has_any_detections:
+                append_predictions([schema_obj])
 
             # Cleanup processed files
             self._cleanup_files(batch_paths)

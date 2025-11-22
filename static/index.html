@@ -5,43 +5,204 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>RTSP Stream Orchestrator</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 720px; }
+    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 900px; }
     label { display: block; margin-top: 1rem; font-weight: bold; }
-    input[type="text"] { width: 100%; padding: 0.5rem; }
-    button { margin-top: 1rem; padding: 0.6rem 1.2rem; }
-    .status { margin-top: 1rem; }
-    .container { border: 1px solid #ccc; padding: 1rem; border-radius: 6px; }
+    input[type="text"], input[type="number"], select { width: 100%; padding: 0.5rem; box-sizing: border-box; }
+    button { margin-top: 1rem; padding: 0.6rem 1.2rem; cursor: pointer; }
+    .status { margin-top: 1rem; padding: 0.5rem; background: #f0f0f0; border-radius: 4px; }
+    .container { border: 1px solid #ccc; padding: 1rem; border-radius: 6px; margin-bottom: 1rem; }
+    .stream-entry { border: 1px solid #ddd; padding: 1rem; margin-bottom: 1rem; border-radius: 4px; background: #f9f9f9; }
+    .new-camera-fields { margin-top: 1rem; padding: 1rem; background: #fff; border: 1px dashed #ccc; border-radius: 4px; display: none; }
+    .new-camera-fields.show { display: block; }
+    .remove-btn { background: #dc3545; color: white; border: none; padding: 0.4rem 0.8rem; cursor: pointer; }
+    .add-btn { background: #28a745; color: white; border: none; }
+    .submit-btn { background: #007bff; color: white; border: none; padding: 0.8rem 2rem; font-size: 1rem; }
+    .error { color: #dc3545; margin-top: 0.5rem; }
+    .success { color: #28a745; margin-top: 0.5rem; }
   </style>
   <script>
-    async function startStream(e) {
-      e.preventDefault();
-      const rtsp_url = document.getElementById('rtsp_url').value;
-      const camera_id = document.getElementById('camera_id').value;
-      const status = document.getElementById('status');
-      status.textContent = 'Starting...';
+    let cameras = [];
+    let streamCounter = 0;
+
+    async function loadCameras() {
       try {
-        const res = await fetch('/start_stream', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rtsp_url, camera_id })
-        });
+        const res = await fetch('/api/cameras');
         const data = await res.json();
-        status.textContent = JSON.stringify(data);
+        cameras = data.cameras || [];
+        updateCameraSelects();
       } catch (err) {
-        status.textContent = 'Error: ' + err.message;
+        console.error('Error loading cameras:', err);
       }
     }
+
+    function updateCameraSelects() {
+      document.querySelectorAll('.camera-select').forEach(select => {
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Select Camera ID</option><option value="__NEW__">Add New Camera ID</option>';
+        cameras.forEach(cam => {
+          const option = document.createElement('option');
+          option.value = cam.cameraID;
+          option.textContent = cam.cameraID;
+          select.appendChild(option);
+        });
+        if (currentValue) select.value = currentValue;
+      });
+    }
+
+    function addStreamEntry() {
+      streamCounter++;
+      const container = document.getElementById('streams-container');
+      const entry = document.createElement('div');
+      entry.className = 'stream-entry';
+      entry.id = `stream-${streamCounter}`;
+      entry.innerHTML = `
+        <h3>Stream ${streamCounter}</h3>
+        <label>RTSP URL</label>
+        <input type="text" class="rtsp-url" placeholder="rtsp://..." required />
+        <label>Camera ID</label>
+        <select class="camera-select" required>
+          <option value="">Select Camera ID</option>
+          <option value="__NEW__">Add New Camera ID</option>
+        </select>
+        <div class="new-camera-fields" id="new-cam-${streamCounter}">
+          <label>New Camera ID</label>
+          <input type="text" class="new-camera-id" placeholder="CAM-001" />
+          <label>Latitude</label>
+          <input type="number" step="any" class="new-latitude" placeholder="26.4499" />
+          <label>Longitude</label>
+          <input type="number" step="any" class="new-longitude" placeholder="80.3319" />
+        </div>
+        <button type="button" class="remove-btn" onclick="removeStream('${entry.id}')">Remove Stream</button>
+      `;
+      container.appendChild(entry);
+      updateCameraSelects();
+      
+      // Add event listener for camera selection change
+      const select = entry.querySelector('.camera-select');
+      select.addEventListener('change', function() {
+        const newCamFields = document.getElementById(`new-cam-${streamCounter}`);
+        if (this.value === '__NEW__') {
+          newCamFields.classList.add('show');
+        } else {
+          newCamFields.classList.remove('show');
+        }
+      });
+    }
+
+    function removeStream(streamId) {
+      document.getElementById(streamId).remove();
+    }
+
+    async function addNewCamera(cameraID, latitude, longitude) {
+      try {
+        const res = await fetch('/api/cameras', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cameraID, latitude, longitude })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          await loadCameras();
+          return { success: true };
+        } else {
+          return { success: false, error: data.error };
+        }
+      } catch (err) {
+        return { success: false, error: err.message };
+      }
+    }
+
+    async function startStreams(e) {
+      e.preventDefault();
+      const status = document.getElementById('status');
+      status.innerHTML = '<div>Starting streams...</div>';
+
+      const streamEntries = document.querySelectorAll('.stream-entry');
+      if (streamEntries.length === 0) {
+        status.innerHTML = '<div class="error">Please add at least one stream</div>';
+        return;
+      }
+
+      const streams = [];
+      const newCameras = [];
+
+      for (const entry of streamEntries) {
+        const rtspUrl = entry.querySelector('.rtsp-url').value.trim();
+        const cameraSelect = entry.querySelector('.camera-select').value;
+        const newCamFields = entry.querySelector('.new-camera-fields');
+        
+        if (!rtspUrl) {
+          status.innerHTML = '<div class="error">All streams must have an RTSP URL</div>';
+          return;
+        }
+
+        let cameraId;
+        if (cameraSelect === '__NEW__') {
+          const newCamId = entry.querySelector('.new-camera-id').value.trim();
+          const lat = entry.querySelector('.new-latitude').value;
+          const lon = entry.querySelector('.new-longitude').value;
+
+          if (!newCamId || newCamId.length === 0 || !lat || !lon) {
+            status.innerHTML = '<div class="error">New camera must have a non-empty ID, latitude, and longitude</div>';
+            return;
+          }
+
+          cameraId = newCamId;
+          newCameras.push({ cameraID: newCamId, latitude: lat, longitude: lon });
+        } else if (!cameraSelect) {
+          status.innerHTML = '<div class="error">All streams must have a Camera ID selected</div>';
+          return;
+        } else {
+          cameraId = cameraSelect;
+        }
+
+        streams.push({ rtsp_url: rtspUrl, camera_id: cameraId });
+      }
+
+      // Add new cameras first
+      for (const newCam of newCameras) {
+        const result = await addNewCamera(newCam.cameraID, newCam.latitude, newCam.longitude);
+        if (!result.success) {
+          status.innerHTML = `<div class="error">Failed to add camera ${newCam.cameraID}: ${result.error}</div>`;
+          return;
+        }
+      }
+
+      // Start all streams
+      try {
+        const res = await fetch('/start_streams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ streams })
+        });
+        const data = await res.json();
+        
+        let html = '<div class="success">Streams started:</div><ul>';
+        data.results.forEach(result => {
+          const statusClass = result.status === 'started' ? 'success' : 'error';
+          html += `<li class="${statusClass}">${result.camera_id}: ${result.status}${result.message ? ' - ' + result.message : ''}</li>`;
+        });
+        html += '</ul>';
+        status.innerHTML = html;
+      } catch (err) {
+        status.innerHTML = `<div class="error">Error: ${err.message}</div>`;
+      }
+    }
+
+    // Load cameras on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      loadCameras();
+      addStreamEntry(); // Add first stream entry by default
+    });
   </script>
   </head>
   <body>
     <h1>RTSP Stream Orchestrator</h1>
     <div class="container">
-      <form onsubmit="startStream(event)">
-        <label for="rtsp_url">RTSP URL</label>
-        <input id="rtsp_url" type="text" placeholder="rtsp://..." required />
-        <label for="camera_id">Camera ID</label>
-        <input id="camera_id" type="text" placeholder="CAM-001" required />
-        <button type="submit">Start Stream</button>
+      <form onsubmit="startStreams(event)">
+        <div id="streams-container"></div>
+        <button type="button" class="add-btn" onclick="addStreamEntry()">+ Add Stream</button>
+        <button type="submit" class="submit-btn">Start All Streams</button>
       </form>
       <div id="status" class="status"></div>
     </div>

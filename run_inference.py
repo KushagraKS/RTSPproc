@@ -6,7 +6,7 @@ import time
 from typing import List, Dict
 
 
-ANIMAL_CLASSES = ['person','dog', 'cat', 'horse', 'sheep', 'cow']
+ANIMAL_CLASSES = ['dog', 'cat', 'horse', 'sheep', 'cow']
 POTHOLE_CLASSES = ['pothole']  # Adjust based on your model's class names
 GARBAGE_CLASSES = ['garbage', 'litter', 'trash']  # Adjust based on your model's class names
 
